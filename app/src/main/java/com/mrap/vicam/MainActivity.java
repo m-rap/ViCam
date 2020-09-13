@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 
 import com.otaliastudios.cameraview.CameraView;
+import com.otaliastudios.cameraview.markers.DefaultAutoFocusMarker;
 
 public class MainActivity extends Activity {
 
@@ -16,6 +17,7 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         camera = findViewById(R.id.camera);
+        camera.setAutoFocusMarker(new DefaultAutoFocusMarker());
     }
 
     @Override
