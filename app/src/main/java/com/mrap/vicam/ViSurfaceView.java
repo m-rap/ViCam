@@ -7,6 +7,7 @@ import android.hardware.Camera;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicHistogram;
 import android.renderscript.ScriptIntrinsicYuvToRGB;
 import android.renderscript.Type;
 import android.util.Log;
@@ -30,23 +31,23 @@ public class ViSurfaceView extends SurfaceView implements SurfaceHolder.Callback
     byte[] nv21 = null;
     RenderScript rs = null;
     ScriptIntrinsicYuvToRGB yuvToRgbIntrinsic = null;
+    ScriptIntrinsicHistogram histogramIntinsic = null;
 
     final Object lock = new Object();
-    final float[] hsv = new float[3];
+    final int[] hData = new int[256];
 
     Runnable calcHsvTask = new Runnable() {
         @Override
         public void run() {
-            byte[] tmp;
-            synchronized (lock) {
-                if (nv21 == null) {
-                    return;
-                }
-                tmp = nv21;
-            }
-            final byte[] localNv21 = tmp;
+//            byte[] localNv21;
+//            synchronized (lock) {
+//                if (nv21 == null) {
+//                    return;
+//                }
+//                localNv21 = nv21;
+//            }
 
-            Log.i(TAG, "calcHsv Start");
+            Log.v(TAG, "calcHsv Start");
 
             int w = getWidth(), h = getHeight();
 
@@ -60,41 +61,78 @@ public class ViSurfaceView extends SurfaceView implements SurfaceHolder.Callback
             if (yuvToRgbIntrinsic == null) {
                 yuvToRgbIntrinsic = ScriptIntrinsicYuvToRGB.create(rs, Element.U8_4(rs));
             }
+            if (histogramIntinsic == null) {
+                histogramIntinsic = ScriptIntrinsicHistogram.create(rs, Element.U8_4(rs));
+            }
 
-            Log.i(TAG, "allocating io");
+            Log.v(TAG, "allocating io");
 
-            Type.Builder yuvType = new Type.Builder(rs, Element.U8(rs)).setX(localNv21.length);
-            Allocation in = Allocation.createTyped(rs, yuvType.create(), Allocation.USAGE_SCRIPT);
+            Type yuvType;
+            Allocation in;
 
-            Type.Builder rgbaType = new Type.Builder(rs, Element.RGBA_8888(rs)).setX(w).setY(h);
-            Allocation out = Allocation.createTyped(rs, rgbaType.create(), Allocation.USAGE_SCRIPT);
+            //in.copyFrom(localNv21);
+            synchronized (lock) {
+                yuvType = new Type.Builder(rs, Element.U8(rs)).setX(nv21.length).create();
+                in = Allocation.createTyped(rs, yuvType, Allocation.USAGE_SCRIPT);
+                in.copyFrom(nv21);
+            }
 
-            in.copyFrom(localNv21);
+            Type rgbaType = new Type.Builder(rs, Element.RGBA_8888(rs)).setX(w).setY(h).create();
+            Allocation out = Allocation.createTyped(rs, rgbaType, Allocation.USAGE_SCRIPT);
 
             yuvToRgbIntrinsic.setInput(in);
             yuvToRgbIntrinsic.forEach(out);
 
             out.copyTo(bmp);
 
-            Log.i(TAG, "copied to bmp");
+            Log.v(TAG, "copied to bmp");
+
+            Allocation hIn = Allocation.createFromBitmap(rs, bmp);
+            //Type i32Type = new Type.Builder(rs, Element.I32(rs)).create();
+            //Allocation hOut = Allocation.createTyped(rs, i32Type, Allocation.USAGE_SCRIPT);
+            Allocation hOut = Allocation.createSized(rs, Element.I32(rs), 256);
+
+            histogramIntinsic.setOutput(hOut);
+            histogramIntinsic.forEach(hIn);
+
+            hOut.copyTo(hData);
+
+            Log.v(TAG, "copied to histogram data");
 
             int area = w * h;
-            float sumV = 0;
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) {
-                    int color = bmp.getPixel(x, y);
-                    Color.RGBToHSV(Color.red(color), Color.green(color), Color.blue(color), hsv);
-                    sumV += hsv[2];
+            float sumV = 0, sumV2 = 0;
+//            for (int y = 0; y < h; y++) {
+//                for (int x = 0; x < w; x++) {
+//                    int color = bmp.getPixel(x, y);
+//                    Color.RGBToHSV(Color.red(color), Color.green(color), Color.blue(color), hsv);
+//                    sumV += hsv[2];
+//                }
+//            }
+            StringBuilder sb = new StringBuilder("h samples ");
+            for (int i = 0; i < hData.length; i++) {
+                sumV2 += hData[i];
+                if (i % (hData.length / 5) == 0) {
+                    sb.append(hData[i]).append(" ");
                 }
             }
-            float avgV = sumV / area;
+            float avgV = sumV / area, avgV2 = sumV2 / 256;
 
-            Log.i(TAG, new StringBuilder("sum v ").append(sumV).append(" avg v ").append(avgV).toString());
+            //Log.i(TAG, new StringBuilder("sum v ").append(sumV).append(" avg v ").append(avgV).toString());
+            //Log.i(TAG, new StringBuilder("sum v 2 ").append(sumV2).append(" avg v 2 ").append(avgV2).toString());
+            Log.i(TAG, sb.toString());
 
             in.destroy();
             out.destroy();
 
-            Log.i(TAG, "task ended");
+            yuvType.destroy();
+            rgbaType.destroy();
+
+            hIn.destroy();
+            hOut.destroy();
+
+            //i32Type.destroy();
+
+            Log.v(TAG, "task ended");
         }
     };
 
@@ -147,6 +185,10 @@ public class ViSurfaceView extends SurfaceView implements SurfaceHolder.Callback
             yuvToRgbIntrinsic.destroy();
         }
         yuvToRgbIntrinsic = null;
+        if (histogramIntinsic != null) {
+            histogramIntinsic.destroy();
+        }
+        histogramIntinsic = null;
         if (rs != null) {
             rs.destroy();
         }
@@ -193,6 +235,7 @@ public class ViSurfaceView extends SurfaceView implements SurfaceHolder.Callback
     public void onPreviewFrame(byte[] data, Camera camera) {
         synchronized (lock) {
             nv21 = data;
+            Log.v(TAG, "updated nv21");
         }
     }
 }
