@@ -32,6 +32,7 @@ public class ViSurfaceView extends SurfaceView implements SurfaceHolder.Callback
     ScriptIntrinsicYuvToRGB yuvToRgbIntrinsic = null;
 
     final Object lock = new Object();
+    final float[] hsv = new float[3];
 
     Runnable calcHsvTask = new Runnable() {
         @Override
@@ -82,7 +83,6 @@ public class ViSurfaceView extends SurfaceView implements SurfaceHolder.Callback
             for (int y = 0; y < h; y++) {
                 for (int x = 0; x < w; x++) {
                     int color = bmp.getPixel(x, y);
-                    float[] hsv = new float[3];
                     Color.RGBToHSV(Color.red(color), Color.green(color), Color.blue(color), hsv);
                     sumV += hsv[2];
                 }
